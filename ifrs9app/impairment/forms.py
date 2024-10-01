@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
-from .models import Project
+from .models import Project, Company
 
 
 class SignUpForm(UserCreationForm):
@@ -47,15 +47,42 @@ class SignUpForm(UserCreationForm):
 class DateInput(forms.DateInput):
     input_type = 'date'
 
-class ProjectForm(forms.ModelForm):
 
-    # name = forms.CharField(max_length=100, required=True, widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Project Name'}))
-    # description = forms.Textarea(attrs={'class': 'form-control', 'placeholder': 'Last Name'})
-    # report_date = forms.DateField(required=True, widget=forms.DateInput(attrs={'class': 'form-control', 'placeholder': 'Select'}))
+class CompanyForm(forms.ModelForm):
+
+    class Meta:
+        model = Company
+        fields = ['name', 'description']
+
+        widgets = {
+            'report_date': forms.DateInput(
+                format=('%Y-%m-%d'),
+                attrs={
+                    'class': 'form-control',
+                    'placeholder': 'Select Report Date',
+                    'type': 'date'
+                }
+            )
+        }
+    
+    def __init__(self, *args, **kwargs):
+        super(CompanyForm, self).__init__(*args, **kwargs)
+        
+        self.fields['name'].widget.attrs['class'] = 'form-control'
+        self.fields['name'].widget.attrs['placeholder'] = 'Type Project Name'
+        self.fields['name'].label = ''
+        
+        self.fields['description'].widget.attrs['class'] = 'form-control'
+        self.fields['description'].widget.attrs['placeholder'] = 'Enter your project descrtiption (255 Character Limit)'
+        self.fields['description'].help_text = ""
+        self.fields['description'].label = ''
+
+
+class ProjectForm(forms.ModelForm):
 
     class Meta:
         model = Project
-        fields = ['name', 'description', 'report_date']
+        fields = ['name', 'report_date']
 
         widgets = {
             'report_date': forms.DateInput(
@@ -75,10 +102,10 @@ class ProjectForm(forms.ModelForm):
         self.fields['name'].widget.attrs['placeholder'] = 'Type Project Name'
         self.fields['name'].label = ''
         
-        self.fields['description'].widget.attrs['class'] = 'form-control'
-        self.fields['description'].widget.attrs['placeholder'] = 'Enter your project descrtiption (255 Character Limit)'
-        self.fields['description'].help_text = ""
-        self.fields['description'].label = ''
+        # self.fields['description'].widget.attrs['class'] = 'form-control'
+        # self.fields['description'].widget.attrs['placeholder'] = 'Enter your project descrtiption (255 Character Limit)'
+        # self.fields['description'].help_text = ""
+        # self.fields['description'].label = ''
 
         self.fields['report_date'].widget.attrs['class'] = 'form-control'
         self.fields['report_date'].widget.attrs['placeholder'] = 'Select Report Date'

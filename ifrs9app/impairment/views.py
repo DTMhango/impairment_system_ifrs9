@@ -281,6 +281,17 @@ def upload_current_loan_book(request, pk):
     else:
         return render(request, 'impairment/data_source.html', {'project': project})
     
+@login_required
+def calculate_ECL(request, pk):
+    pandarallel.initialize()
+
+    project = get_object_or_404(Project, pk=pk)
+    
+    if request.method == "POST":
+        data = EADLGDCalculationResult.objects.filter(project=project)
+
+    return render(request, 'impairment/ecl.html', {'project': project})
+
 
 @login_required
 def current_loan_book(request, pk):

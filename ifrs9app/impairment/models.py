@@ -2,18 +2,32 @@ from django.db import models
 from django.contrib.auth.models import User
 
 
-class Project(models.Model):
+class Company(models.Model):
     name = models.CharField(max_length=100, unique=True)
-    description = models.TextField(blank=True, max_length=100, help_text="Add a description to your project")
-    report_date = models.DateField()
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="creator")
+    description = models.TextField(max_length=255, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="company_creator", default=2) # If creating a new database create a default user profile and set the default to the id of your default profile 
     created_at = models.DateTimeField(auto_now_add=True, editable=False)
-    last_modified_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="modifier")
+
+    def __str__(self) -> str:
+        return self.name   
+
+
+class Project(models.Model):
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='projects')
+    name = models.CharField(max_length=150, unique=True, blank=True)
+    report_date = models.DateField()
+    version = models.CharField(max_length=35)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="project_creator", default=2)
+    created_at = models.DateTimeField(auto_now_add=True, editable=False)
+    last_modified_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="modifier", default=2)
     last_modified_on = models.DateTimeField(auto_now=True)
     status = models.CharField(max_length=10, choices=[('Active', 'Active'), ('Locked', 'Locked')], default='Active')
     is_archived = models.BooleanField(default=False)
 
     def save(self):
+
+        self.name = f"{self.company.name} - {self.report_date.strftime('%d %B %Y' - self.version)}"
+
         if self.is_archived:
             self.status = 'Locked'
         else: 
@@ -39,7 +53,7 @@ class PDCalculationResult(models.Model):
         return f"Calculation results for {self.project.name} on {self.created_at}"
 
 class EADLGDCalculationResult(models.Model):
-    account_no = models.CharField(max_length=50, unique=True, null=True)
+    account_no = models.CharField(max_length=50, null=True)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='ead_lgd_calculations')
     stage = models.CharField(max_length=10, null=True)
     amortization_schedule = models.JSONField(null=True, blank=True)
@@ -48,6 +62,12 @@ class EADLGDCalculationResult(models.Model):
 
     def __str__(self) -> str:
         return f"EAD and LGD results for account {self.account_no} in project {self.project.name}"
+    
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['account_no', 'project'], name='unique_account_per_project')
+        ]
+
 
 class ECLCalculationResult(models.Model):
     project = models.OneToOneField(Project, on_delete=models.CASCADE, related_name='ecl_calculations')
