@@ -1,22 +1,29 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils.text import slugify
 
 
 class Company(models.Model):
     name = models.CharField(max_length=100, unique=True)
-    description = models.TextField(max_length=255, blank=True)
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="company_creator", default=2) # If creating a new database create a default user profile and set the default to the id of your default profile 
+    description = models.TextField(max_length=100, blank=True)
+    slug = models.SlugField(max_length=100, unique=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="company_creator", default=2)
     created_at = models.DateTimeField(auto_now_add=True, editable=False)
 
-    def __str__(self) -> str:
-        return self.name   
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
 
 
 class Project(models.Model):
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='projects')
     name = models.CharField(max_length=150, unique=True, blank=True)
     report_date = models.DateField()
-    version = models.CharField(max_length=35)
+    version = models.CharField(max_length=35, unique=True)
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="project_creator", default=2)
     created_at = models.DateTimeField(auto_now_add=True, editable=False)
     last_modified_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="modifier", default=2)
@@ -26,7 +33,7 @@ class Project(models.Model):
 
     def save(self):
 
-        self.name = f"{self.company.name} - {self.report_date.strftime('%d %B %Y' - self.version)}"
+        self.name = f"{self.company.name} - {self.report_date.strftime('%d %B %Y')} - {self.version}"
 
         if self.is_archived:
             self.status = 'Locked'

@@ -9,8 +9,8 @@ from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.urls import reverse
 from django.http import HttpResponseRedirect, Http404
-from .forms import SignUpForm, ProjectForm
-from .models import Project, HistoricalCustomerLoanData, PDCalculationResult, CurrentLoanBook, EADLGDCalculationResult, ECLCalculationResult
+from .forms import SignUpForm, ProjectForm, CompanyForm
+from .models import Project, HistoricalCustomerLoanData, PDCalculationResult, CurrentLoanBook, EADLGDCalculationResult, ECLCalculationResult, Company
 import pandas as pd
 from .data_validation import data_prep, add_dates, staging_map
 from .matrix_functions import base_matrices, absorbing_state, extract_pds, cure_rate, multi_to_single, plot_rates_px
@@ -31,16 +31,16 @@ staging_map_partial = partial(staging_map, matrix_size = MAT_SIZE)
 def home(request):
     if request.user.is_authenticated:
         if request.user.is_superuser:
-            projects_list = Project.objects.all().order_by('report_date')
-            paginator = Paginator(projects_list, 10)  # Paginate with 10 projects per page
+            company_list = Company.objects.all().order_by('name')
+            paginator = Paginator(company_list, 10)  # Paginate with 10 projects per page
 
             page_number = request.GET.get('page')
             page_obj = paginator.get_page(page_number)
 
             return render(request, 'impairment/home.html', {'page_obj': page_obj})
         else:
-            projects_list = Project.objects.filter(created_by=request.user).order_by('report_date')
-            paginator = Paginator(projects_list, 10)  # Paginate with 10 projects per page
+            company_list = Company.objects.filter(created_by=request.user).order_by('report_date')
+            paginator = Paginator(company_list, 10)  # Paginate with 10 projects per page
 
             page_number = request.GET.get('page')
             page_obj = paginator.get_page(page_number)
@@ -48,6 +48,28 @@ def home(request):
             return render(request, 'impairment/home.html', {'page_obj': page_obj})
     else:
         return redirect('sign_in')
+    
+
+@login_required
+def project_selection(request, company_slug):
+    company = get_object_or_404(Company, slug=company_slug)  # Fetch the company based on the slug
+
+    # Superusers can see all projects for the company, others can only see their own projects
+    if request.user.is_superuser:
+        projects_list = Project.objects.filter(company=company).order_by('report_date')
+    else:
+        projects_list = Project.objects.filter(company=company, created_by=request.user).order_by('report_date')
+
+    paginator = Paginator(projects_list, 10)  # Paginate with 10 projects per page
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    context = {
+        'company': company,
+        'page_obj': page_obj,  
+    }
+
+    return render(request, 'impairment/projects.html', context)
     
 
 def sign_in(request):
@@ -90,10 +112,12 @@ def sign_up(request):
 
 
 @login_required
-def data_source(request, pk):
-    project = get_object_or_404(Project, pk=pk)
+def data_source(request, company_slug, pk):
+    company = get_object_or_404(Company, slug=company_slug)
+    project = get_object_or_404(Project, pk=pk, company=company)
 
     context = {
+        'company': company,
         'project': project,
     }
     return render(request, 'impairment/data_source.html', context)
@@ -101,13 +125,14 @@ def data_source(request, pk):
 
 
 @login_required
-def upload_historical_loan_data(request, pk):
-    project = get_object_or_404(Project, pk=pk)
+def upload_historical_loan_data(request, company_slug, pk):
+    company = get_object_or_404(Company, slug=company_slug)
+    project = get_object_or_404(Project, pk=pk, company=company)
     
     if request.method == 'POST':
         if 'historical_loan_data' not in request.FILES:
             messages.error(request, 'No file uploaded. Please upload a CSV file.')
-            return render(request, 'impairment/data_source.html', {'project': project})
+            return render(request, 'impairment/data_source.html', {'company': company, 'project': project, })
         
         uploaded_file = request.FILES['historical_loan_data']
 
@@ -165,19 +190,20 @@ def upload_historical_loan_data(request, pk):
 
         except Exception as e:
             messages.error(request, f"Error reading file: {e}")
-            return render(request, 'impairment/data_source.html', {'project': project})
+            return render(request, 'impairment/data_source.html', {'company': company, 'project': project, })
 
 
-        return redirect('data_source', pk=pk)
+        return redirect(reverse('data_source', args=[company_slug, pk]))
 
     else:
-        return render(request, 'impairment/data_source.html', {'project': project})
+        return render(request, 'impairment/data_source.html', {'company': company, 'project': project, })
 
 
 @login_required
-def upload_current_loan_book(request, pk):
+def upload_current_loan_book(request, company_slug, pk):
     pandarallel.initialize()
-    project = get_object_or_404(Project, pk=pk)
+    company = get_object_or_404(Company, slug=company_slug)
+    project = get_object_or_404(Project, pk=pk, company=company)
     
     if request.method == 'POST':
         uploaded_file = request.FILES['current_loan_book']
@@ -274,43 +300,119 @@ def upload_current_loan_book(request, pk):
             
         except Exception as e:
             messages.error(request, f"Error reading file: {e}")
-            return render(request, 'impairment/data_source.html', {'project': project})
+            return render(request, 'impairment/data_source.html', {'company': company, 'project': project, })
 
-        return redirect('data_source', pk=pk)
+        return redirect(reverse('data_source', args=[company_slug, pk]))
 
     else:
-        return render(request, 'impairment/data_source.html', {'project': project})
+        return render(request, 'impairment/data_source.html', {'company': company, 'project': project, })
     
 @login_required
-def calculate_ECL(request, pk):
+def calculate_ECL(request, company_slug, pk):
     pandarallel.initialize()
-
-    project = get_object_or_404(Project, pk=pk)
+    company = get_object_or_404(Company, slug=company_slug)
+    project = get_object_or_404(Project, pk=pk, company=company)
     
     if request.method == "POST":
         data = EADLGDCalculationResult.objects.filter(project=project)
 
-    return render(request, 'impairment/ecl.html', {'project': project})
+    return render(request, 'impairment/ecl.html', {'company': company, 'project': project, })
 
 
 @login_required
-def current_loan_book(request, pk):
-    project = get_object_or_404(Project, pk=pk)
+def current_stage_1(request, company_slug, pk):
+    company = get_object_or_404(Company, slug=company_slug)
+    project = get_object_or_404(Project, pk=pk, company=company)
+
+    try:
+        loanbook_file = get_object_or_404(CurrentLoanBook, project=project, is_valid=True)
+    except Http404:
+        return render(request, 'impairment/blank.html', {'company': company, 'project': project, })
+
+    data = pd.DataFrame(loanbook_file.uploaded_file)
+    data = data.sort_values(by=['account_no'])
+
+    stage_1_loans = data[data['staging'] == 'stage_1']
+    stage_1_loans = stage_1_loans.to_dict(orient='records')
+
+    stage_1_paginator = Paginator(stage_1_loans, 15)
+    page_number = request.GET.get('page')
+    page_obj = stage_1_paginator.get_page(page_number)
 
     context = {
+        'company': company,
         'project': project,
+        'page_obj': page_obj,
     }
-    return render(request, 'impairment/current_loan_book.html', context)
+    return render(request, 'impairment/current_stage_1.html', context)
+
 
 @login_required
-def cumulative_probability_of_default(request, pk):
-    project = get_object_or_404(Project, pk=pk)
+def current_stage_2(request, company_slug, pk):
+    company = get_object_or_404(Company, slug=company_slug)
+    project = get_object_or_404(Project, pk=pk, company=company)
+
+    try:
+        loanbook_file = get_object_or_404(CurrentLoanBook, project=project, is_valid=True)
+    except Http404:
+        return render(request, 'impairment/blank.html', {'company': company, 'project': project, })
+
+    data = pd.DataFrame(loanbook_file.uploaded_file)
+    data = data.sort_values(by=['account_no'])
+
+    stage_2_loans = data[data['staging'] == 'stage_2']
+    stage_2_loans = stage_2_loans.to_dict(orient='records')
+
+    stage_2_paginator = Paginator(stage_2_loans, 15)
+    page_number = request.GET.get('page')
+    page_obj = stage_2_paginator.get_page(page_number)
+
+    context = {
+        'company': company,
+        'project': project,
+        'page_obj': page_obj,
+    }
+    return render(request, 'impairment/current_stage_2.html', context)
+
+
+@login_required
+def current_stage_3(request, company_slug, pk):
+    company = get_object_or_404(Company, slug=company_slug)
+    project = get_object_or_404(Project, pk=pk, company=company)
+
+    try:
+        loanbook_file = get_object_or_404(CurrentLoanBook, project=project, is_valid=True)
+    except Http404:
+        return render(request, 'impairment/blank.html', {'company': company, 'project': project, })
+
+    data = pd.DataFrame(loanbook_file.uploaded_file)
+    data = data.sort_values(by=['account_no'])
+
+    stage_3_loans = data[data['staging'] == 'stage_3']
+    stage_3_loans = stage_3_loans.to_dict(orient='records')
+
+    stage_3_paginator = Paginator(stage_3_loans, 15)
+    page_number = request.GET.get('page')
+    page_obj = stage_3_paginator.get_page(page_number)
+
+    context = {
+        'company': company,
+        'project': project,
+        'page_obj': page_obj,
+    }
+    return render(request, 'impairment/current_stage_3.html', context)
+
+
+@login_required
+def cumulative_probability_of_default(request, company_slug, pk):
+    company = get_object_or_404(Company, slug=company_slug)
+    project = get_object_or_404(Project, pk=pk, company=company)
 
     try:
         pd_results = get_object_or_404(PDCalculationResult, project=project)
     except Http404:
         # If no PDCalculationResult exists, render the impairment/blank.html view
-        return render(request, 'impairment/blank.html', {'project': project})
+        return render(request, 'impairment/blank.html', {'company': company, 'project': project, })
 
     stage_1_cumulative = pd.DataFrame(pd_results.stage_1_cumulative)
     stage_2_cumulative = pd_results.stage_2_cumulative
@@ -320,6 +422,7 @@ def cumulative_probability_of_default(request, pk):
     s2_cml_page_obj = s2_cml_paginator.get_page(page_number)
 
     context = {
+        'company': company,
         'project': project,
         'stage_1_cumulative': stage_1_cumulative,
         's2_cml_page_obj': s2_cml_page_obj,
@@ -328,14 +431,15 @@ def cumulative_probability_of_default(request, pk):
 
 
 @login_required
-def marginal_probability_of_default(request, pk):
-    project = get_object_or_404(Project, pk=pk)
+def marginal_probability_of_default(request, company_slug, pk):
+    company = get_object_or_404(Company, slug=company_slug)
+    project = get_object_or_404(Project, pk=pk, company=company)
 
     try:
         pd_results = get_object_or_404(PDCalculationResult, project=project)
     except Http404:
         # If no PDCalculationResult exists, render the impairment/blank.html view
-        return render(request, 'impairment/blank.html', {'project': project})
+        return render(request, 'impairment/blank.html', {'company': company, 'project': project, })
 
     stage_1_marginal = pd.DataFrame(pd_results.stage_1_marginal)
     stage_2_marginal = pd_results.stage_2_marginal
@@ -345,6 +449,7 @@ def marginal_probability_of_default(request, pk):
     s2_marg_page_obj = s2_marg_paginator.get_page(page_number)    
 
     context = {
+        'company': company,
         'project': project,
         'stage_1_marginal': stage_1_marginal,
         's2_marg_page_obj': s2_marg_page_obj,
@@ -353,14 +458,15 @@ def marginal_probability_of_default(request, pk):
 
 
 @login_required
-def cures_and_recoveries(request, pk):
-    project = get_object_or_404(Project, pk=pk)
+def cures_and_recoveries(request, company_slug, pk):
+    company = get_object_or_404(Company, slug=company_slug)
+    project = get_object_or_404(Project, pk=pk, company=company)
 
     try:
         pd_results = get_object_or_404(PDCalculationResult, project=project)
     except Http404:
         # If no PDCalculationResult exists, render the impairment/blank.html view
-        return render(request, 'impairment/blank.html', {'project': project})
+        return render(request, 'impairment/blank.html', {'company': company, 'project': project, })
 
     cures = pd_results.cures
     recoveries = pd_results.recoveries
@@ -374,6 +480,7 @@ def cures_and_recoveries(request, pk):
     recoveries_page_obj = recoveries_paginator.get_page(recoveries_page_number)   
 
     context = {
+        'company': company,
         'project': project,
         'cures_page_obj': cures_page_obj,
         'recoveries_page_obj': recoveries_page_obj,
@@ -382,66 +489,85 @@ def cures_and_recoveries(request, pk):
 
 
 @login_required
-def ead_analysis(request, pk):
-    project = get_object_or_404(Project, pk=pk)
+def ead_analysis(request, company_slug, pk):
+    company = get_object_or_404(Company, slug=company_slug)
+    project = get_object_or_404(Project, pk=pk, company=company)
 
     context = {
+        'company': company,
         'project': project,
     }
     return render(request, 'impairment/ead_analysis.html', context)
 
 
 @login_required
-def lgd_analysis(request, pk):
-    project = get_object_or_404(Project, pk=pk)
+def lgd_analysis(request, company_slug, pk):
+    company = get_object_or_404(Company, slug=company_slug)
+    project = get_object_or_404(Project, pk=pk, company=company)
 
     context = {
+        'company': company,
         'project': project,
     }
     return render(request, 'impairment/lgd_analysis.html', context)
 
 
 @login_required
-def fli(request, pk):
-    project = get_object_or_404(Project, pk=pk)
+def fli(request, company_slug, pk):
+    company = get_object_or_404(Company, slug=company_slug)
+    project = get_object_or_404(Project, pk=pk, company=company)
 
     context = {
+        'company': company,
         'project': project,
     }
     return render(request, 'impairment/fli.html', context)
 
 
 @login_required
-def dashboard(request, pk):
-    project = get_object_or_404(Project, pk=pk)
+def dashboard(request, company_slug, pk):
+    company = get_object_or_404(Company, slug=company_slug)
+    project = get_object_or_404(Project, pk=pk, company=company)
 
     context = {
+        'company': company,
         'project': project,
     }
     return render(request, 'impairment/dashboard.html', context)
 
 
 @login_required
-def create_project(request):
+def create_company(request):
+    if request.method == 'POST':
+        form = CompanyForm(request.POST)
+        if form.is_valid():
+            company = form.save(commit=False)  
+            company.created_by = request.user   
+            company.save()  
+            messages.success(request, "Company Added Successfully!")
+            return HttpResponseRedirect(reverse('home'))
+    else:
+        form = CompanyForm()
+    return render(request, 'impairment/create_company.html', {'form': form})
+
+
+@login_required
+def create_project(request, company_slug):
+    company = get_object_or_404(Company, slug=company_slug)  # Fetch the company based on the slug
+
     if request.method == 'POST':
         form = ProjectForm(request.POST)
         if form.is_valid():
             project = form.save(commit=False)  
+            project.company = company  # Assign the selected company to the project
             project.created_by = request.user  
             project.last_modified_by = request.user  
             project.save()  
             messages.success(request, "Project Created Successfully!")
-            return HttpResponseRedirect(reverse('home'))
+            return HttpResponseRedirect(reverse('company_projects', args=[company_slug]))  # Redirect to company's projects
     else:
         form = ProjectForm()
-    return render(request, 'impairment/create_project.html', {'form': form})
+
+    return render(request, 'impairment/create_project.html', {'company': company, 'form': form})
 
 
-# @login_required
-# def project_detail(request, pk):
-#     project = get_object_or_404(Project, pk=pk)
-
-#     context = {
-#         'project': project,
-#     }
-#     return render(request, 'impairment/data_source.html', context)

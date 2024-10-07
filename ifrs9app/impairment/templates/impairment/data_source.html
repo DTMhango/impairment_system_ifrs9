@@ -3,7 +3,6 @@
 {% load widget_tweaks %}
 {% block content %}
 
-
 <div class="container d-flex justify-content-center py-4">
   <div class="col-lg-8">
     <div class="card my-4">
@@ -37,7 +36,7 @@
           <div id="uploadForms" class="d-none mt-4">
             
             <!-- Historical Loan Data Form -->
-            <form action="{% url 'upload_historical_loan_data' project.pk %}" enctype="multipart/form-data" method="post">
+            <form action="{% url 'upload_historical_loan_data' company.slug project.pk %}" enctype="multipart/form-data" method="post">
               {% csrf_token %}
               <div class="row justify-content-center">
                 <div class="col-md-6">
@@ -63,7 +62,7 @@
             <hr>
 
             <!-- Current Loan Book Form -->
-            <form action="{% url 'upload_current_loan_book' project.pk %}" enctype="multipart/form-data" method="post">
+            <form action="{% url 'upload_current_loan_book' company.slug project.pk %}" enctype="multipart/form-data" method="post">
               {% csrf_token %}
               <div class="row justify-content-center">
                 <div class="col-md-6">

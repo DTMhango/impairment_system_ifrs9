@@ -9,9 +9,9 @@
         <div class="container-fluid py-1 px-3">
           <nav aria-label="breadcrumb">
             <ul class="breadcrumb bg-transparent mb-0 pb-0 pt-1 px-0 me-sm-6 me-5">
-              <li class="breadcrumb-item text-sm"><a class="opacity-5 text-dark" href="{% url 'cumulative_probability_of_default' project.pk %}">Cumulative PDs</a></li>
-              <li class="breadcrumb-item text-sm"><a class="opacity-5 text-dark" href="{% url 'marginal_probability_of_default' project.pk %}">Marginal PDs</a></li>
-              <li class="breadcrumb-item text-sm"><a class="opacity-5 text-dark" href="{% url 'probability_cures_and_recoveries' project.pk %}">Cures and Recoveries</a></li>
+              <li class="breadcrumb-item text-sm"><a class="opacity-5 text-dark" href="{% url 'cumulative_probability_of_default' company.slug project.pk %}">Cumulative PDs</a></li>
+              <li class="breadcrumb-item text-sm"><a class="opacity-5 text-dark" href="{% url 'marginal_probability_of_default' company.slug project.pk %}">Marginal PDs</a></li>
+              <li class="breadcrumb-item text-sm"><a class="opacity-5 text-dark" href="{% url 'probability_cures_and_recoveries' company.slug project.pk %}">Cures and Recoveries</a></li>
             </ul>
           </nav>
         </div>

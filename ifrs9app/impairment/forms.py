@@ -53,23 +53,12 @@ class CompanyForm(forms.ModelForm):
     class Meta:
         model = Company
         fields = ['name', 'description']
-
-        widgets = {
-            'report_date': forms.DateInput(
-                format=('%Y-%m-%d'),
-                attrs={
-                    'class': 'form-control',
-                    'placeholder': 'Select Report Date',
-                    'type': 'date'
-                }
-            )
-        }
     
     def __init__(self, *args, **kwargs):
         super(CompanyForm, self).__init__(*args, **kwargs)
         
         self.fields['name'].widget.attrs['class'] = 'form-control'
-        self.fields['name'].widget.attrs['placeholder'] = 'Type Project Name'
+        self.fields['name'].widget.attrs['placeholder'] = 'Type Company Name'
         self.fields['name'].label = ''
         
         self.fields['description'].widget.attrs['class'] = 'form-control'
@@ -82,7 +71,7 @@ class ProjectForm(forms.ModelForm):
 
     class Meta:
         model = Project
-        fields = ['name', 'report_date']
+        fields = ['version', 'report_date']
 
         widgets = {
             'report_date': forms.DateInput(
@@ -98,9 +87,9 @@ class ProjectForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super(ProjectForm, self).__init__(*args, **kwargs)
         
-        self.fields['name'].widget.attrs['class'] = 'form-control'
-        self.fields['name'].widget.attrs['placeholder'] = 'Type Project Name'
-        self.fields['name'].label = ''
+        self.fields['version'].widget.attrs['class'] = 'form-control'
+        self.fields['version'].widget.attrs['placeholder'] = 'Enter Project Version'
+        self.fields['version'].label = ''
         
         # self.fields['description'].widget.attrs['class'] = 'form-control'
         # self.fields['description'].widget.attrs['placeholder'] = 'Enter your project descrtiption (255 Character Limit)'
