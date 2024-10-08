@@ -63,6 +63,8 @@ class EADLGDCalculationResult(models.Model):
     account_no = models.CharField(max_length=50, null=True)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='ead_lgd_calculations')
     stage = models.CharField(max_length=10, null=True)
+    loan_type = models.CharField(max_length=50, null=True)
+    effective_interest_rate = models.FloatField(max_length=15, null=True)
     amortization_schedule = models.JSONField(null=True, blank=True)
     lgd_schedule = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -78,8 +80,6 @@ class EADLGDCalculationResult(models.Model):
 
 class ECLCalculationResult(models.Model):
     project = models.OneToOneField(Project, on_delete=models.CASCADE, related_name='ecl_calculations')
-    pd_data = models.ForeignKey(PDCalculationResult, on_delete=models.CASCADE)
-    ead_lgd_data = models.ForeignKey(EADLGDCalculationResult, on_delete=models.CASCADE)
     ecl_results = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -105,9 +105,9 @@ class HistoricalCustomerLoanData(models.Model):
         # Step 3: Delete the oldest files if there are more than 10 datasets for this project
         data_files = HistoricalCustomerLoanData.objects.filter(project=self.project).order_by('file_upload_date')
 
-        # If there are more than 10 data files, delete the oldest ones
-        if data_files.count() > 10:
-            excess_files = data_files[:-10]  # Get the oldest files beyond the 10 most recent
+        # If there are more than 5 data files per project, delete the oldest ones
+        if data_files.count() > 5:
+            excess_files = data_files[:-5]  # Get the oldest files beyond the 10 most recent
             for file_to_delete in excess_files:
                 file_to_delete.delete()  # This deletes the object and its associated file if applicable
 

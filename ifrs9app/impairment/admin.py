@@ -24,7 +24,7 @@ class PDCalculationResultAdmin(admin.ModelAdmin):
 
 @admin.register(EADLGDCalculationResult)
 class EADLGDCalculationResultAdmin(admin.ModelAdmin):
-    list_display = ['project', 'account_no', 'stage', 'amortization_schedule', 'lgd_schedule', 'created_at']
+    list_display = ['project', 'account_no', 'stage', 'loan_type', 'effective_interest_rate', 'amortization_schedule', 'lgd_schedule', 'created_at']
 
 
 @admin.register(CurrentLoanBook)
@@ -33,4 +33,7 @@ class CurrentLoanBookAdmin(admin.ModelAdmin):
     exclude = ['uploaded_file']
 
 
-admin.site.register(ECLCalculationResult)
+@admin.register(ECLCalculationResult)
+class ECLCalculationResultAdmin(admin.ModelAdmin):
+    list_display = ['project', 'created_at']
+    exclude = ['ecl_results']

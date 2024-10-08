@@ -27,50 +27,6 @@ MAT_SIZE = 3 # Note: Debating whether to create widget for selections between 3 
 
 staging_map_partial = partial(staging_map, matrix_size = MAT_SIZE)
 
-# @login_required
-def home(request):
-    if request.user.is_authenticated:
-        if request.user.is_superuser:
-            company_list = Company.objects.all().order_by('name')
-            paginator = Paginator(company_list, 10)  # Paginate with 10 projects per page
-
-            page_number = request.GET.get('page')
-            page_obj = paginator.get_page(page_number)
-
-            return render(request, 'impairment/home.html', {'page_obj': page_obj})
-        else:
-            company_list = Company.objects.filter(created_by=request.user).order_by('report_date')
-            paginator = Paginator(company_list, 10)  # Paginate with 10 projects per page
-
-            page_number = request.GET.get('page')
-            page_obj = paginator.get_page(page_number)
-
-            return render(request, 'impairment/home.html', {'page_obj': page_obj})
-    else:
-        return redirect('sign_in')
-    
-
-@login_required
-def project_selection(request, company_slug):
-    company = get_object_or_404(Company, slug=company_slug)  # Fetch the company based on the slug
-
-    # Superusers can see all projects for the company, others can only see their own projects
-    if request.user.is_superuser:
-        projects_list = Project.objects.filter(company=company).order_by('report_date')
-    else:
-        projects_list = Project.objects.filter(company=company, created_by=request.user).order_by('report_date')
-
-    paginator = Paginator(projects_list, 10)  # Paginate with 10 projects per page
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-
-    context = {
-        'company': company,
-        'page_obj': page_obj,  
-    }
-
-    return render(request, 'impairment/projects.html', context)
-    
 
 def sign_in(request):
     if request.user.is_authenticated:
@@ -110,6 +66,86 @@ def sign_up(request):
         form = SignUpForm()
     return render(request, 'impairment/sign-up.html', {'form': form})
 
+
+@login_required
+def create_company(request):
+    if request.method == 'POST':
+        form = CompanyForm(request.POST)
+        if form.is_valid():
+            company = form.save(commit=False)  
+            company.created_by = request.user   
+            company.save()  
+            messages.success(request, "Company Added Successfully!")
+            return HttpResponseRedirect(reverse('home'))
+    else:
+        form = CompanyForm()
+    return render(request, 'impairment/create_company.html', {'form': form})
+
+
+@login_required
+def create_project(request, company_slug):
+    company = get_object_or_404(Company, slug=company_slug)  # Fetch the company based on the slug
+
+    if request.method == 'POST':
+        form = ProjectForm(request.POST)
+        if form.is_valid():
+            project = form.save(commit=False)  
+            project.company = company  # Assign the selected company to the project
+            project.created_by = request.user  
+            project.last_modified_by = request.user  
+            project.save()  
+            messages.success(request, "Project Created Successfully!")
+            return HttpResponseRedirect(reverse('company_projects', args=[company_slug]))  # Redirect to company's projects
+    else:
+        form = ProjectForm()
+
+    return render(request, 'impairment/create_project.html', {'company': company, 'form': form})
+
+
+# @login_required
+def home(request):
+    if request.user.is_authenticated:
+        if request.user.is_superuser:
+            company_list = Company.objects.all().order_by('name')
+            paginator = Paginator(company_list, 10)  # Paginate with 10 projects per page
+
+            page_number = request.GET.get('page')
+            page_obj = paginator.get_page(page_number)
+
+            return render(request, 'impairment/home.html', {'page_obj': page_obj})
+        else:
+            company_list = Company.objects.filter(created_by=request.user)
+            paginator = Paginator(company_list, 10)  # Paginate with 10 projects per page
+
+            page_number = request.GET.get('page')
+            page_obj = paginator.get_page(page_number)
+
+            return render(request, 'impairment/home.html', {'page_obj': page_obj})
+    else:
+        return redirect('sign_in')
+    
+
+@login_required
+def project_selection(request, company_slug):
+    company = get_object_or_404(Company, slug=company_slug)  # Fetch the company based on the slug
+
+    # Superusers can see all projects for the company, others can only see their own projects
+    if request.user.is_superuser:
+        projects_list = Project.objects.filter(company=company).order_by('report_date')
+    else:
+        projects_list = Project.objects.filter(company=company, created_by=request.user).order_by('report_date')
+
+    paginator = Paginator(projects_list, 10)  # Paginate with 10 projects per page
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    context = {
+        'company': company,
+        'page_obj': page_obj,  
+    }
+
+    return render(request, 'impairment/projects.html', context)
+    
 
 @login_required
 def data_source(request, company_slug, pk):
@@ -264,7 +300,7 @@ def upload_current_loan_book(request, company_slug, pk):
 
 
             # Step 6: Combine account numbers from the original loanbook
-            results = loanbook[['account_no', 'staging']].copy()
+            results = loanbook[['account_no', 'staging', 'loan_type', 'interest_rate']].copy()
             results['amortization_schedule'] = EAD['amortization_schedule']
             results['lgd_schedule'] = LGD['lgd_schedule']
 
@@ -274,6 +310,8 @@ def upload_current_loan_book(request, company_slug, pk):
                     EADLGDCalculationResult.objects.update_or_create(
                         account_no=row['account_no'],
                         stage=row['staging'],
+                        loan_type=row['loan_type'],
+                        effective_interest_rate=float(row['interest_rate']),
                         project=project,
                         defaults={
                             'amortization_schedule': row['amortization_schedule'],
@@ -307,16 +345,78 @@ def upload_current_loan_book(request, company_slug, pk):
     else:
         return render(request, 'impairment/data_source.html', {'company': company, 'project': project, })
     
+
+@login_required
+def fetch_ecl(request, company_slug, pk):
+    company = get_object_or_404(Company, slug=company_slug)
+    project = get_object_or_404(Project, pk=pk, company=company)
+    
+    try:
+        ecl_result = ECLCalculationResult.objects.get(project=project)
+        ecl_data = pd.DataFrame(ecl_result.ecl_results)
+        ecl_data = sum_of_ecl(ecl_data)
+        ecl_data = ecl_data.to_dict(orient='records')
+
+    except ECLCalculationResult.DoesNotExist:
+        ecl_data = []  # Empty data for an empty table display
+
+    paginator = Paginator(ecl_data, 15)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    return render(request, 'impairment/ecl.html', {'company': company, 'project': project, 'page_obj': page_obj})
+
+
 @login_required
 def calculate_ECL(request, company_slug, pk):
     pandarallel.initialize()
     company = get_object_or_404(Company, slug=company_slug)
     project = get_object_or_404(Project, pk=pk, company=company)
     
-    if request.method == "POST":
-        data = EADLGDCalculationResult.objects.filter(project=project)
 
-    return render(request, 'impairment/ecl.html', {'company': company, 'project': project, })
+    ead_lgd_data = EADLGDCalculationResult.objects.filter(project=project)
+    account_no_list = [item.account_no for item in ead_lgd_data]
+    stage_list = [item.stage for item in ead_lgd_data]
+    loan_type_list = [item.loan_type for item in ead_lgd_data]
+    eir_list = [float(item.effective_interest_rate) if item.effective_interest_rate is not None else 0.0 for item in ead_lgd_data]
+    ead_list = [pd.DataFrame(item.amortization_schedule) for item in ead_lgd_data]
+    lgd_list = [pd.DataFrame(item.lgd_schedule) for item in ead_lgd_data]
+
+    
+
+    pd_data = get_object_or_404(PDCalculationResult, project=project)
+
+    def convert_to_float(df):
+        # Convert columns to float except those containing 'date' in the column name
+        return df.apply(lambda col: col.astype(float) if 'date' not in col.name.lower() else col)
+
+    stage1_pds = convert_to_float(pd.DataFrame(pd_data.stage_1_marginal))
+    stage2_pds = convert_to_float(pd.DataFrame(pd_data.stage_2_marginal))
+
+    ECL = ECL_Calc(
+        account_no_list=account_no_list,
+        stage_list=stage_list,
+        loan_type_list=loan_type_list,
+        eir_list=eir_list,
+        ead_list=ead_list,
+        lgd_list=lgd_list,
+        stage1_pds=stage1_pds,
+        stage2_pds=stage2_pds
+    )
+
+    ecl_data = ECL.to_dict(orient='records')
+
+    ECLCalculationResult.objects.update_or_create(
+        project=project,
+        defaults={'ecl_results': ecl_data}
+    )
+
+    ecl_paginator = Paginator(ECL, 15)
+    page_number = request.GET.get('page')
+    page_obj = ecl_paginator.get_page(page_number)
+
+
+    return redirect('fetch_ecl', company_slug=company.slug, pk=project.pk)
 
 
 @login_required
@@ -536,38 +636,5 @@ def dashboard(request, company_slug, pk):
     return render(request, 'impairment/dashboard.html', context)
 
 
-@login_required
-def create_company(request):
-    if request.method == 'POST':
-        form = CompanyForm(request.POST)
-        if form.is_valid():
-            company = form.save(commit=False)  
-            company.created_by = request.user   
-            company.save()  
-            messages.success(request, "Company Added Successfully!")
-            return HttpResponseRedirect(reverse('home'))
-    else:
-        form = CompanyForm()
-    return render(request, 'impairment/create_company.html', {'form': form})
-
-
-@login_required
-def create_project(request, company_slug):
-    company = get_object_or_404(Company, slug=company_slug)  # Fetch the company based on the slug
-
-    if request.method == 'POST':
-        form = ProjectForm(request.POST)
-        if form.is_valid():
-            project = form.save(commit=False)  
-            project.company = company  # Assign the selected company to the project
-            project.created_by = request.user  
-            project.last_modified_by = request.user  
-            project.save()  
-            messages.success(request, "Project Created Successfully!")
-            return HttpResponseRedirect(reverse('company_projects', args=[company_slug]))  # Redirect to company's projects
-    else:
-        form = ProjectForm()
-
-    return render(request, 'impairment/create_project.html', {'company': company, 'form': form})
 
 

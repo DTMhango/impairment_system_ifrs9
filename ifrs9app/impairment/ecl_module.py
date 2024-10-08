@@ -72,11 +72,11 @@ class ExposureAtDefault():
         self.total_num_payments = round(self.payment_frequency * self.total_duration)
         self.stage = self.staging_map(self.dpd, self.matrix_size)
         self.pthly_payment = abs(round(npf.pmt(rate=self.periodic_rate, nper=self.total_num_payments, pv=self.disbursed_amount), 2))
-
-        try:
-            self.eir = brentq(lambda x: self.pthly_payment * ((1 - (1 + x) ** - self.total_num_payments) / x) - (self.disbursed_amount - self.fees), 0.00001, 0.99999) * self.payment_frequency
-        except ValueError:
-            self.eir = self.interest_rate
+        self.eir = self.interest_rate
+        # try:
+        #     self.eir = brentq(lambda x: self.pthly_payment * ((1 - (1 + x) ** - self.total_num_payments) / x) - (self.disbursed_amount - self.fees), 0.00001, 0.99999) * self.payment_frequency
+        # except ValueError:
+        #     self.eir = self.interest_rate
 
         if self.payment_frequency not in set(range(0, 13)):
             raise ValueError("Payment Frequency must be integer value between 1 and 12")
@@ -171,7 +171,7 @@ class ExposureAtDefault():
             'Payment': payment_schedule[:-1],
             'Interest': interest_schedule[:-1],
             'Principal': principal_schedule[:-1],
-            #'Interest Rate': self.interest_rate,
+            'Loan Type': self.loan_type,
             'Effective Interest Rate': self.eir})
         
         return schedule_fin
@@ -182,14 +182,15 @@ class LossGivenDefault():
     
     def __init__(self, exposure:ExposureAtDefault, cure_rate:pd.DataFrame, recovery_rate:pd.DataFrame=None) -> None:
         self.exposure = exposure
+        self.stage = self.exposure.stage
         self.cure_rate = cure_rate[self.exposure.loan_type]
         self.recovery_rate = recovery_rate[self.exposure.loan_type] if recovery_rate is not None else None
         
         self.max_amort_length = min(self.exposure.amortization.shape[0], self.cure_rate.shape[0])
 
-        if self.exposure.stage == 'stage_1':
+        if self.stage == 'stage_1':
             self.ead = self.exposure.amortization['EAD (Out Bal.)'].iloc[0:min(12, self.max_amort_length)]
-        elif self.exposure.stage == 'stage_3':
+        elif self.stage == 'stage_3':
             self.ead = self.exposure.amortization['EAD (Out Bal.)'].iloc[0]
         else:
             self.ead = self.exposure.amortization['EAD (Out Bal.)'].iloc[0:self.max_amort_length]
@@ -247,7 +248,7 @@ class LossGivenDefault():
                 "LGD": lgd,
                 "Cure Rate": self.cure_rate.iloc[0:len(self.ead)].values,
                 "Recovery Rate": self.recovery_rate.iloc[0:len(self.ead)].values if self.recovery_rate is not None else np.nan,
-                "Total DCV": self.total_dcv
+                "Total DCV": self.total_dcv,
             }, index=range(0, len(self.ead)))
         except (TypeError, AttributeError) as e:
             if self.recovery_rate is not None:
@@ -260,7 +261,7 @@ class LossGivenDefault():
                 "LGD": lgd,
                 "Cure Rate": [self.cure_rate.iloc[0]],
                 "Recovery Rate": [self.recovery_rate.iloc[0]] if self.recovery_rate is not None else [np.nan],
-                "Total DCV": [self.total_dcv]
+                "Total DCV": [self.total_dcv],
             }, index=[0])
 
         return lgd_df
@@ -295,24 +296,52 @@ def create_ead_instance(row):
 #         recovery_rate=recoveries
 #     )
 
-def calculate_single_loan_ecl(row, lgd_row, stage1_pds, stage2_pds):
+def calculate_single_loan_ecl(
+        account_no:str, 
+        stage:str, 
+        loan_type:str,
+        eir: float,
+        amortization_schedule:pd.DataFrame, 
+        lgd_schedule:pd.DataFrame, 
+        stage1_pds:pd.DataFrame, 
+        stage2_pds:pd.DataFrame
+    ):
+    """
+    Function to calculate the ECL for a single loan
+
+    params:
+
+    account_no: String representation of account number or unique loan identifier
+
+    stage: Stage as determined by the ```staging_map``` function - see ```data_validation.py```
+
+    loan_type: The loan-type per the segmentation in the data set - segmentation in PD data and Current Loan Book must match EXACTLY!
+
+    eir: The applicable Effective Interest rate for the loan
+
+    amortization_schedule: Expects Pandas Dataframe from the ```amortization``` property of ```ExposureAtDefault()``` class
+
+    ldg_schedule: Expects Pandas Dataframe from the ```lgd_schedule``` of the ```LossGivenDefault``` class
+
+    stage_1_pds: Expects Pandas Dataframe containing the marginal probability of default for Stage 1 loans - see ```extract_pds()``` function in ```data_validation.py```
+
+    stage_2_pds: Expects Pandas Dataframe containing the marginal probability of default for Stage 2 loans - see ```extract_pds()``` function in ```data_validation.py```
+
+    """
+
     max_pd_length = stage2_pds.shape[0]
-    tol = row.loan_type
-    stge = row.stage
-    account_number = row.account_number
-    ead = row.amortization["EAD (Out Bal.)"]
-    lgd = lgd_row.lgd_schedule["LGD"]
-    eir = row.eir
+    ead = pd.to_numeric(amortization_schedule["EAD (Out Bal.)"])
+    lgd = pd.to_numeric(lgd_schedule["LGD"])
 
     if isinstance(ead, np.float64):
         num = 1
     else:
         num = min(len(ead), max_pd_length, len(lgd))
 
-    if stge == 'stage_1':
-        PD = stage1_pds[tol][:num]
-    elif stge == 'stage_2':
-        PD = stage2_pds[tol][:num]
+    if stage == 'stage_1':
+        PD = stage1_pds[loan_type][:num]
+    elif stage == 'stage_2':
+        PD = stage2_pds[loan_type][:num]
     else:
         PD = pd.Series([1] * num)
 
@@ -326,13 +355,13 @@ def calculate_single_loan_ecl(row, lgd_row, stage1_pds, stage2_pds):
     try:
         ecl = PD * ead * lgd * discount_factor
     except Exception as e:
-        print(f"Error calculating ECL for loan {account_number}: {e}")
+        print(f"Error calculating ECL for loan {account_no}: {e}")
         return None
 
     loan_ecl = {
-        "Account Number": [account_number] * num,
-        "Stage": [stge] * num,
-        "Loan Type": [tol] * num,
+        "Account Number": [account_no] * num,
+        "Stage": [stage] * num,
+        "Loan Type": [loan_type] * num,
         "ECL": list(ecl),
         "EAD": list(ead),
         "PD": list(PD),
@@ -341,20 +370,27 @@ def calculate_single_loan_ecl(row, lgd_row, stage1_pds, stage2_pds):
 
     return pd.DataFrame(loan_ecl)
 
-def ECL_Calc(ead_df: pd.DataFrame, lgd_df: pd.DataFrame, stage1_pds, stage2_pds):
-    ead_lgd_combined = pd.concat([ead_df, lgd_df], axis=1)
+def ECL_Calc(
+        account_no_list: list, 
+        stage_list: list, 
+        loan_type_list: list,
+        eir_list: list,
+        ead_list: list, 
+        lgd_list: list, 
+        stage1_pds: pd.DataFrame, 
+        stage2_pds: pd.DataFrame
+    ):
 
-    results = ead_lgd_combined.parallel_apply(
-        lambda row: calculate_single_loan_ecl(
-            row["EAD OBJECTS"], row["LGD OBJECTS"], stage1_pds, stage2_pds
-        ), axis=1)
+    parameters = zip(account_no_list, stage_list, loan_type_list, eir_list, ead_list, lgd_list)
 
-    ECL_df = pd.concat(results.tolist(), axis=0)
+    results = list(map(lambda params: calculate_single_loan_ecl(*params, stage1_pds, stage2_pds), parameters))
+
+    ECL_df = pd.concat(results, axis=0)
     ECL_df.reset_index(inplace=True, drop=True)
     ECL_df["ECL"] = ECL_df['ECL'].round(2)
     ECL_df["EAD"] = ECL_df['EAD'].round(2)
-    ECL_df["PD"] = ECL_df['PD'].round(5)
-    ECL_df["LGD"] = ECL_df['LGD'].round(5)
+    ECL_df["PD"] = ECL_df['PD'].round(8)
+    ECL_df["LGD"] = ECL_df['LGD'].round(8)
     return ECL_df
 
 

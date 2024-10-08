@@ -123,6 +123,14 @@
             </a>
             {% endwith %}
           </li>
+          <li class="nav-item">
+            {% with request.resolver_match.url_name as url_name %}
+            <a class="nav-link text-white {% if url_name == 'fetch_ecl' %}active bg-gradient-secondary{% endif %}" href="{% url 'fetch_ecl' company.slug project.pk %}">
+              <i class="material-icons opacity-10">data_exploration</i>
+              <span class="nav-link-text ms-1">Expected Credit Loss</span>
+            </a>
+            {% endwith %}
+          </li>
       </ul>
         <!-- Add more project-specific links here -->
         {% endif %}

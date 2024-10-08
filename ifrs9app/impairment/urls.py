@@ -17,10 +17,16 @@ urlpatterns = [
     path('company/<slug:company_slug>/project/<int:pk>/lgd-analysis/', views.lgd_analysis, name='lgd_analysis'),
     path('company/<slug:company_slug>/project/<int:pk>/ead-analysis/', views.ead_analysis, name='ead_analysis'),
     path('company/<slug:company_slug>/project/<int:pk>/forward-looking-information/', views.fli, name='forward_looking_information'),
-    
+
+    # New paths for ECL calculation and display
+    path('company/<slug:company_slug>/project/<int:pk>/fetch-ecl/', views.fetch_ecl, name='fetch_ecl'),
+    path('company/<slug:company_slug>/project/<int:pk>/calculate-ecl/', views.calculate_ECL, name='calculate_ecl'),
+
+    # Authentication and Company/Project management paths
     path('sign-in/', views.sign_in, name='sign_in'),
     path('sign-out/', views.sign_out, name='sign_out'),
     path('sign-up/', views.sign_up, name='sign_up'),
     path('add-company/', views.create_company, name='create_company'),
     path('company/<slug:company_slug>/create-project/', views.create_project, name='create_project'),
 ]
+
