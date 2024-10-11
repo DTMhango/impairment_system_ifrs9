@@ -15,17 +15,27 @@
           <div class="card-body px-0 pb-2">
             <a href="{% url 'calculate_ecl' company.slug project.pk %}" class="btn btn-primary">Calculate ECL</a>
             <div class="table-responsive p-0">
+              {% if messages %}
+                <div class="container">
+                  {% for message in messages %}
+                    <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                      {{ message }}
+                      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
                 <table class="table align-items-center justify-content-center mb-0">
                   
                     <!-- Table headers -->
                     <tr>
-                      {% if page_obj %}
+                      {% if page_obj and page_obj.object_list %}
                       {% for col in page_obj.object_list.0.keys %}
                       <td>
                         <strong>{{ col }}</strong>
                       </td>
                       {% endfor %}
-                      {% endif %}
+                      
                     </tr>
   
                     <!-- Table data -->
@@ -38,6 +48,12 @@
                       {% endfor %}
                     </tr>
                     {% endfor %}
+
+                    {% else %}
+                      <div class="container">
+                        <p class="alert alert-info">No ECL data available. Please ensure that both PD and EAD/LGD data are uploaded before running the calculation.</p>
+                      </div>
+                    {% endif %}
                   </table>
                   <!-- PAGE NAVIGATION -->
                   <nav aria-label="Page navigation">

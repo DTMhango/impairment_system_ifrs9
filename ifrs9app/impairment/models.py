@@ -23,13 +23,18 @@ class Project(models.Model):
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='projects')
     name = models.CharField(max_length=150, unique=True, blank=True)
     report_date = models.DateField()
-    version = models.CharField(max_length=35, unique=True)
+    version = models.CharField(max_length=35)
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="project_creator", default=2)
     created_at = models.DateTimeField(auto_now_add=True, editable=False)
     last_modified_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="modifier", default=2)
     last_modified_on = models.DateTimeField(auto_now=True)
     status = models.CharField(max_length=10, choices=[('Active', 'Active'), ('Locked', 'Locked')], default='Active')
     is_archived = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['company', 'report_date', 'version'], name="unique_version_per_company_and_date")
+        ]
 
     def save(self):
 
@@ -102,12 +107,12 @@ class HistoricalCustomerLoanData(models.Model):
         # Step 2: Call the original save method to store the new file
         super(HistoricalCustomerLoanData, self).save(*args, **kwargs)
 
-        # Step 3: Delete the oldest files if there are more than 10 datasets for this project
+        # Step 3: Delete the oldest files if there are more than 5 datasets for this project
         data_files = HistoricalCustomerLoanData.objects.filter(project=self.project).order_by('file_upload_date')
 
         # If there are more than 5 data files per project, delete the oldest ones
         if data_files.count() > 5:
-            excess_files = data_files[:-5]  # Get the oldest files beyond the 10 most recent
+            excess_files = data_files[:-5]  # Get the oldest files beyond the 5 most recent
             for file_to_delete in excess_files:
                 file_to_delete.delete()  # This deletes the object and its associated file if applicable
 
@@ -116,12 +121,29 @@ class HistoricalCustomerLoanData(models.Model):
 
     
 class CurrentLoanBook(models.Model):
-    project = models.OneToOneField(Project, on_delete=models.CASCADE, related_name='current_loan_data')
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='current_loan_data')
     uploaded_file = models.JSONField(null=True, blank=True)
     file_name = models.CharField(max_length=100, null=True, blank=True)
     file_upload_date = models.DateTimeField(auto_now_add=True, null=True)
     is_valid = models.BooleanField(default=True)
 
+
+    def save(self, *args, **kwargs):
+        # Step 1: Mark all previous datasets for the same project as invalid when a new one is created
+        if self.is_valid:
+            CurrentLoanBook.objects.filter(project=self.project, is_valid=True).update(is_valid=False)
+
+        # Step 2: Call the original save method to store the new file
+        super(CurrentLoanBook, self).save(*args, **kwargs)
+
+        # Step 3: Delete the oldest files if there are more than 5 datasets for this project
+        data_files = CurrentLoanBook.objects.filter(project=self.project).order_by('file_upload_date')
+
+        # If there are more than 5 data files per project, delete the oldest ones
+        if data_files.count() > 5:
+            excess_files = data_files[:-5]  # Get the oldest files beyond the 5 most recent
+            for file_to_delete in excess_files:
+                file_to_delete.delete()  # This deletes the object and its associated file if applicable
 
     def __str__(self) -> str:
         return f"{self.file_name} Uploaded on {self.file_upload_date}"

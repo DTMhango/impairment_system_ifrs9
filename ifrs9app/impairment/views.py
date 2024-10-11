@@ -253,6 +253,8 @@ def upload_current_loan_book(request, company_slug, pk):
             uploaded_file = request.FILES['current_loan_book']
             initial_loanbook = pd.read_csv(uploaded_file)
 
+            EADLGDCalculationResult.objects.filter(project=project).delete()
+
             # Step 1: Remove loan duplicates
 
             initial_loanbook['staging'] = initial_loanbook['days_past_due'].map(staging_map_partial)  # Map stages
@@ -369,12 +371,22 @@ def fetch_ecl(request, company_slug, pk):
 
 @login_required
 def calculate_ECL(request, company_slug, pk):
-    pandarallel.initialize()
+    
     company = get_object_or_404(Company, slug=company_slug)
     project = get_object_or_404(Project, pk=pk, company=company)
-    
 
     ead_lgd_data = EADLGDCalculationResult.objects.filter(project=project)
+    if not ead_lgd_data.exists():
+        messages.error(request, "EAD and LGD data not found. Please upload the required data before calculating ECL.")
+        return redirect('fetch_ecl', company_slug=company.slug, pk=project.pk)
+
+    try:
+        pd_data = PDCalculationResult.objects.get(project=project)
+    except PDCalculationResult.DoesNotExist:
+        messages.error(request, "PD data not found. Please upload the required data before calculating ECL.")
+        return redirect('fetch_ecl', company_slug=company.slug, pk=project.pk)
+
+    # Proceed with the calculation if both datasets are present
     account_no_list = [item.account_no for item in ead_lgd_data]
     stage_list = [item.stage for item in ead_lgd_data]
     loan_type_list = [item.loan_type for item in ead_lgd_data]
@@ -382,12 +394,7 @@ def calculate_ECL(request, company_slug, pk):
     ead_list = [pd.DataFrame(item.amortization_schedule) for item in ead_lgd_data]
     lgd_list = [pd.DataFrame(item.lgd_schedule) for item in ead_lgd_data]
 
-    
-
-    pd_data = get_object_or_404(PDCalculationResult, project=project)
-
     def convert_to_float(df):
-        # Convert columns to float except those containing 'date' in the column name
         return df.apply(lambda col: col.astype(float) if 'date' not in col.name.lower() else col)
 
     stage1_pds = convert_to_float(pd.DataFrame(pd_data.stage_1_marginal))
@@ -411,11 +418,6 @@ def calculate_ECL(request, company_slug, pk):
         defaults={'ecl_results': ecl_data}
     )
 
-    ecl_paginator = Paginator(ECL, 15)
-    page_number = request.GET.get('page')
-    page_obj = ecl_paginator.get_page(page_number)
-
-
     return redirect('fetch_ecl', company_slug=company.slug, pk=project.pk)
 
 
@@ -435,7 +437,7 @@ def current_stage_1(request, company_slug, pk):
     stage_1_loans = data[data['staging'] == 'stage_1']
     stage_1_loans = stage_1_loans.to_dict(orient='records')
 
-    stage_1_paginator = Paginator(stage_1_loans, 15)
+    stage_1_paginator = Paginator(stage_1_loans, 12)
     page_number = request.GET.get('page')
     page_obj = stage_1_paginator.get_page(page_number)
 
@@ -463,7 +465,7 @@ def current_stage_2(request, company_slug, pk):
     stage_2_loans = data[data['staging'] == 'stage_2']
     stage_2_loans = stage_2_loans.to_dict(orient='records')
 
-    stage_2_paginator = Paginator(stage_2_loans, 15)
+    stage_2_paginator = Paginator(stage_2_loans, 12)
     page_number = request.GET.get('page')
     page_obj = stage_2_paginator.get_page(page_number)
 
@@ -491,7 +493,7 @@ def current_stage_3(request, company_slug, pk):
     stage_3_loans = data[data['staging'] == 'stage_3']
     stage_3_loans = stage_3_loans.to_dict(orient='records')
 
-    stage_3_paginator = Paginator(stage_3_loans, 15)
+    stage_3_paginator = Paginator(stage_3_loans, 12)
     page_number = request.GET.get('page')
     page_obj = stage_3_paginator.get_page(page_number)
 
@@ -517,7 +519,7 @@ def cumulative_probability_of_default(request, company_slug, pk):
     stage_1_cumulative = pd.DataFrame(pd_results.stage_1_cumulative)
     stage_2_cumulative = pd_results.stage_2_cumulative
 
-    s2_cml_paginator = Paginator(stage_2_cumulative, 15)
+    s2_cml_paginator = Paginator(stage_2_cumulative, 12)
     page_number = request.GET.get('page')
     s2_cml_page_obj = s2_cml_paginator.get_page(page_number)
 
@@ -544,7 +546,7 @@ def marginal_probability_of_default(request, company_slug, pk):
     stage_1_marginal = pd.DataFrame(pd_results.stage_1_marginal)
     stage_2_marginal = pd_results.stage_2_marginal
 
-    s2_marg_paginator = Paginator(stage_2_marginal, 15)
+    s2_marg_paginator = Paginator(stage_2_marginal, 12)
     page_number = request.GET.get('page')
     s2_marg_page_obj = s2_marg_paginator.get_page(page_number)    
 
@@ -629,9 +631,67 @@ def dashboard(request, company_slug, pk):
     company = get_object_or_404(Company, slug=company_slug)
     project = get_object_or_404(Project, pk=pk, company=company)
 
+    try:
+        ECL = get_object_or_404(ECLCalculationResult, project=project)
+        ECL = pd.DataFrame(ECL.ecl_results)
+        unique_loan_types = ECL['Loan Type'].unique().tolist()
+        ECL_TOTAL = float(ECL["ECL"].sum())
+        ECL_STAGE1 = ECL.groupby("Stage")["ECL"].sum().loc["stage_1"]
+        ECL_STAGE2 = ECL.groupby("Stage")["ECL"].sum().loc["stage_2"]
+        ECL_STAGE3 = ECL.groupby("Stage")["ECL"].sum().loc["stage_3"]
+
+        ecl_summary_loan_type = {}
+        grouped_data = ECL.groupby("Loan Type")
+
+        # Calculate total EAD once outside the loop
+        total_ead = grouped_data['EAD'].sum().sum()
+
+        for loan_type in grouped_data.groups.keys():
+            ecl_sum = grouped_data["ECL"].sum().loc[loan_type]
+            ead_sum = grouped_data["EAD"].sum().loc[loan_type]
+            coverage_ratio = ecl_sum / ead_sum * 100 if ead_sum else 0
+            proportion = ead_sum / total_ead *100 if total_ead else 0  # Calculate the proportion of each loan type's EAD to the total EAD
+            ecl_summary_loan_type[loan_type] = [ecl_sum, ead_sum, proportion, coverage_ratio]
+
+        # Sorting by proportion (index 2) in ascending order
+        ecl_summary_loan_type = dict(
+            sorted(ecl_summary_loan_type.items(), key=lambda item: item[1][1], reverse=True)
+        )
+
+        worst_performing = max(ecl_summary_loan_type.items(), key=lambda item: item[1][3])[0]
+        best_performing  = min(ecl_summary_loan_type.items(), key=lambda item: item[1][3])[0]
+        best_performing_ead = ecl_summary_loan_type[best_performing][1] 
+        worst_performing_ead = ecl_summary_loan_type[worst_performing][1]
+
+        largest_ead_name = max(ecl_summary_loan_type.items(), key=lambda item: item[1][1])[0]
+        smallest_ead_name = min(ecl_summary_loan_type.items(), key=lambda item: item[1][1])[0]
+        largest_ead_value = ecl_summary_loan_type[largest_ead_name][1] 
+        smallest_ead_value = ecl_summary_loan_type[smallest_ead_name][1]
+
+    except Http404:
+        ECL, ECL_STAGE1, ECL_STAGE2, ECL_STAGE3, ECL_TOTAL, unique_loan_types, ecl_summary_loan_type = None, None, None, None, None, None, None
+        best_performing, worst_performing, best_performing_ead, worst_performing_ead = None, None, None, None
+        largest_ead_name, smallest_ead_name, largest_ead_value, smallest_ead_value = None, None, None, None
+
     context = {
         'company': company,
         'project': project,
+        'ECL': ECL,
+        'ECL_STAGE1': ECL_STAGE1,
+        'ECL_STAGE2': ECL_STAGE2,
+        'ECL_STAGE3': ECL_STAGE3,
+        'ECL_TOTAL': ECL_TOTAL,
+        'unique_loan_types': unique_loan_types,
+        'ecl_summary': ecl_summary_loan_type,
+        'best_performing': best_performing,
+        'best_performing_ead': best_performing_ead,
+        'worst_performing': worst_performing,
+        'worst_performing_ead': worst_performing_ead,
+        'largest_loan_type': largest_ead_name,
+        'largest_loan_value': largest_ead_value,
+        'smallest_loan_type': smallest_ead_name,
+        'smallest_loan_value': smallest_ead_value,
+
     }
     return render(request, 'impairment/dashboard.html', context)
 
